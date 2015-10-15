@@ -243,3 +243,22 @@ def f_hookean(eq_dists, dists, k):
 	import numpy as np
 	from scipy import spatial
 	return(np.sum(spatial.distance.squareform(k*(dists-eq_dists)**2)))
+
+###################################################################################################################################
+# Function:		plot_landscape
+# Purpose:		Plot energy landscape as a surface
+# Arguments:	
+###################################################################################################################################
+def plot_landscape(pc1, pc2, energy, label=['PC1', 'PC2', 'Elastic Energy'], rstride=1, cstride=1):
+	import matplotlib.pyplot as plt
+	from matplotlib import cm
+	from mpl_toolkits.mplot3d import Axes3D
+
+	fig = plt.figure()
+	ax = fig.add_subplot(111, projection='3d')
+	surf = ax.plot_surface(pc1, pc2, energy, rstride=rstride, cstride=cstride, cmap=cm.coolwarm, linewidth=0)
+	fig.colorbar(surf, shrink=0.5, aspect=5)
+	ax.set_xlabel(label[0])
+	ax.set_ylabel(label[1])
+	ax.set_zlabel(label[2])
+	return((fig, ax, surf))
