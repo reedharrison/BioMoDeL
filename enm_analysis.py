@@ -3,7 +3,36 @@
 # Purpose:		Calculate energy stored in spring deformations from elastic network model according to some reference structure
 # Arguments:	
 ###################################################################################################################################
-def calcElasticEnergy(pdb_ref, ensemble, sel, cutoff, k=1):
+def calcElasticEnergy(pdb, refpdb, sel='calpha', cutoff=12, k=1):
+	import prody as pd
+	import numpy as np
+	import scipy as sci
+	import scipy.spatial as sp
+
+	# Select desired atoms, retrieve reference parameters, and initialize Kirchhoff matrix
+	gnm = pd.GNM()
+	gnm.buildKirchhoff(refpdb.calpha, cutoff, k)
+	kirchhoff = gnm.getKirchhoff()
+	np.fill_diagonal(kirchhoff, 0)
+	kirchhoff = abs(kirchhoff)
+
+	# Calculate distances between Kirchhoff contacts
+	eq_dists = sp.distance.cdist(refpdb.calpha.select(sel).getCoords(), refpdb.calpha.select(sel).getCoords(), metric='euclidean')
+	dists = sp.cdist(pdb.calpha.select(sel).getCoords(), pdb.calpha.select(sel).getCoords(), metric='euclidean')
+
+	# Iterate over coords within ensemble
+	energies = k * np.multiply(np.square(dists-eq_dists), kirchhoff)
+	energies = sci.triu(energies)
+	energies = np.sum(energies)
+	
+	return(energies)
+
+###################################################################################################################################
+# Function:		calcElasticEnergy2
+# Purpose:		Calculate energy stored in spring deformations from elastic network model according to some reference structure
+# Arguments:	
+###################################################################################################################################
+def calcElasticEnergy2(pdb_ref, ensemble, sel, cutoff, k=1):
 	import prody as pd
 	import numpy as np
 	from scipy import spatial
@@ -37,47 +66,71 @@ def calcElasticEnergy(pdb_ref, ensemble, sel, cutoff, k=1):
 # Purpose:		Calculate minimum energy landscape according to Avisek et al, Plos Comp Bio, 2014
 # Arguments:	
 ###################################################################################################################################
-def calcMultiStateEnergy(pdb_sel, ensemble_ref, ensemble, sel, cutoff, k=1, U_0=0):
+def calcMultiStateEnergy(ensemble, ensemble_ref, cutoff=12, k=1, U0=None):
 	import prody as pd
-	from scipy import spatial
+	import scipy as sci
+	import scipy.spatial as sp
 	import numpy as np
 
-	# Select specified atoms for analysis
-	atoms = pdb_sel.select(sel)
-	ensemble_ref.setAtoms(atoms)
-	ensemble.setAtoms(atoms)
-	num_ref = len(ensemble_ref)
-	num_struct = len(ensemble)
+	n_conf = ensemble.numConfs()
+	n_ref = ensemble_ref.numConfs()
+	energies = np.zeros((n_ref, n_conf))
 
-	# Initialize containers
-	U = np.zeros((num_ref,num_struct))
-	
-	# If user defines a U_0, use the values. U_0[i] is the reference state energy for reference structure i
-	if U_0 == 0:
-		U_0 = np.zeros(num_ref)
-
-	# Perform elastic energy calculations for each reference structure
-	i = 0
-	for coords_ref in ensemble_ref.iterCoordsets():
-		# Define connectivity matrix for reference structure i
+	for i, conf_ref in zip(xrange(n_ref), ensemble_ref.iterCoordsets()):
 		gnm = pd.GNM()
-		gnm.buildKirchhoff(coords_ref, cutoff, k)
+		gnm.buildKirchhoff(conf_ref, cutoff, k)
 		kirchhoff = gnm.getKirchhoff()
 		np.fill_diagonal(kirchhoff, 0)
 		kirchhoff = abs(kirchhoff)
-		kirchhoff = spatial.distance.squareform(kirchhoff)
+		eq_dists = sp.distance.squareform(sp.distance.pdist(conf_ref, metric='euclidean'))
+		for j, conf in zip(xrange(n_conf), ensemble.iterCoordsets()):
+			dists = sp.distance.squareform(sp.distance.pdist(conf, metric='euclidean'))
+			springs = (k/2) * np.multiply(np.square(dists-eq_dists), kirchhoff)
+			springs = sci.triu(springs)
+			energies[i,j] = np.sum(springs)
 
-		# Calculate deformation energies
-		eq_dists = spatial.distance.pdist(coords_ref)
-		energies = np.zeros(len(ensemble))
-		j = 0
-		for coords in ensemble.iterCoordsets():
-			dists = spatial.distance.pdist(coords)
-			U[i,j] = f_hookean(eq_dists, dists, k*kirchhoff)
-			j += 1
-		U = U + U_0[i]
-		i += 1
-	return(U.min(axis=0)) # Return minimum energy per structure by column
+	# return np.min(energies, axis=0)
+	return energies
+	
+
+
+#def calcMultiStateEnergy(pdb_sel, ensemble_ref, ensemble, sel, cutoff, k=1, U_0=0):
+	# # Select specified atoms for analysis
+	# atoms = pdb_sel.select(sel)
+	# ensemble_ref.setAtoms(atoms)
+	# ensemble.setAtoms(atoms)
+	# num_ref = len(ensemble_ref)
+	# num_struct = len(ensemble)
+
+	# # Initialize containers
+	# U = np.zeros((num_ref,num_struct))
+	
+	# # If user defines a U_0, use the values. U_0[i] is the reference state energy for reference structure i
+	# if U_0 == 0:
+	# 	U_0 = np.zeros(num_ref)
+
+	# # Perform elastic energy calculations for each reference structure
+	# i = 0
+	# for coords_ref in ensemble_ref.iterCoordsets():
+	# 	# Define connectivity matrix for reference structure i
+	# 	gnm = pd.GNM()
+	# 	gnm.buildKirchhoff(coords_ref, cutoff, k)
+	# 	kirchhoff = gnm.getKirchhoff()
+	# 	np.fill_diagonal(kirchhoff, 0)
+	# 	kirchhoff = abs(kirchhoff)
+	# 	kirchhoff = spatial.distance.squareform(kirchhoff)
+
+	# 	# Calculate deformation energies
+	# 	eq_dists = spatial.distance.pdist(coords_ref)
+	# 	energies = np.zeros(len(ensemble))
+	# 	j = 0
+	# 	for coords in ensemble.iterCoordsets():
+	# 		dists = spatial.distance.pdist(coords)
+	# 		U[i,j] = f_hookean(eq_dists, dists, k*kirchhoff)
+	# 		j += 1
+	# 	U = U + U_0[i]
+	# 	i += 1
+	# return(U.min(axis=0)) # Return minimum energy per structure by column
 
 
 ###################################################################################################################################
@@ -262,3 +315,176 @@ def plot_landscape(pc1, pc2, energy, label=['PC1', 'PC2', 'Elastic Energy'], rst
 	ax.set_ylabel(label[1])
 	ax.set_zlabel(label[2])
 	return((fig, ax, surf))
+
+###################################################################################################################################
+# Function:		calcANMPathway
+# Purpose:		Calculate ensemble of structures predicting conformational transition between pdb_a and pdb_b
+# Arguments:	
+###################################################################################################################################
+def calcANMPathway(pdb_a, pdb_b, k=0.1, r_c=15, U0_a=0, U0_b=0, sa=0.8, sb=0.4, t_rmsd=0.1, tol=10**(-4), crit_rmsd=1, m=100, max_iter=100):
+	import numpy as np
+	import prody as pd
+	import scipy as sci
+	import scipy.spatial as sp
+
+	def calc_dU(coords, coords_ref, cutoff=r_c, k=k):
+		gnm = pd.GNM()
+		gnm.buildKirchhoff(coords_ref, cutoff, k)
+		kirchhoff = gnm.getKirchhoff()
+		np.fill_diagonal(kirchhoff, 0)
+		kirchhoff = abs(kirchhoff)
+
+		n_atom = coords.shape[0]
+
+		xi = coords[:,0]
+		yi = coords[:,1]
+		zi = coords[:,2]
+		xj = coords_ref[:,0]
+		yj = coords_ref[:,1]
+		zj = coords_ref[:,2]
+
+		xi, xj = np.meshgrid(xi, xj)
+		yi, yj = np.meshgrid(yi, yj)
+		zi, zj = np.meshgrid(zi, zj)
+		mag = np.sqrt(np.square(xi-xj)+np.square(yi-yj)+np.square(zi-zj))
+		np.fill_diagonal(mag, -1)	
+
+		D = sp.distance.squareform(sp.distance.pdist(coords, metric='euclidean'))
+		D0 = sp.distance.squareform(sp.distance.pdist(coords_ref, metric='euclidean'))
+
+		dU = np.multiply(kirchhoff, D-D0)
+		dU = dU/np.max(abs(dU))
+		dUx = np.multiply(dU, np.divide(xi-xj, mag))
+		dUy = np.multiply(dU, np.divide(yi-yj, mag))
+		dUz = np.multiply(dU, np.divide(zi-zj, mag))
+
+		# dUx = np.nansum(sci.triu(dUx))
+		# dUy = np.nansum(sci.triu(dUy))
+		# dUz = np.nansum(sci.triu(dUz))
+		dUx = np.sum(dUx, axis=1)/dU.shape[1]
+		dUy = np.sum(dUy, axis=1)/dU.shape[1]
+		dUz = np.sum(dUz, axis=1)/dU.shape[1]
+
+		return dUx, dUy, dUz
+
+	def findCuspStruct(pdb_a, pdb_b, ensemble_ref, m=m):
+		ensemble = pd.Ensemble()
+		ensemble.setAtoms(pdb_a)
+		ensemble.setCoords(pdb_a.getCoords())
+		conf_i = pdb_a.copy()
+		conf_f = pdb_b.copy()
+		conf_f, T = pd.superpose(conf_f, conf_i)
+		v = conf_f.getCoords() - conf_i.getCoords()
+		for i in np.linspace(0, 1, m):
+			q = i
+			p = 1-q
+			coords = (p*v)+conf_i.getCoords()
+			ensemble.addCoordset(coords)
+		E_trans = calcMultiStateEnergy(ensemble, ensemble_ref, cutoff=r_c, k=k)
+		E_trans = E_trans/np.max(E_trans)
+		diff_E = abs(E_trans[0,:]-E_trans[1,:])
+		ind_trans = np.argmin(diff_E)
+		coords = ensemble[ind_trans].getCoords()
+		return(coords, diff_E[ind_trans])
+
+	def minimize(coords, coords_ref, s, cutoff=r_c, k=k, U0=None):
+		dUx, dUy, dUz = calc_dU(coords, coords_ref, cutoff=cutoff, k=k)
+		dx = np.multiply(s, dUx)
+		dy = np.multiply(s, dUy)
+		dz = np.multiply(s, dUz)
+		# print '\tMoving coordinates max <%f, %f, %f>'%(np.max(abs(dx)),np.max(abs(dy)),np.max(abs(dz)))
+		x = coords[:,0] - dx
+		y = coords[:,1] - dy
+		z = coords[:,2] - dz
+		newcoords = np.zeros(coords.shape)
+		newcoords[:,0] = x
+		newcoords[:,1] = y
+		newcoords[:,2] = z
+		return newcoords
+
+	# Instantiate containers for data
+	# pdb_b, junk = pd.superpose(pdb_b, pdb_a)
+	pdb_container_a = pdb_a.copy()
+	pdb_container_b = pdb_b.copy()
+	pdb_trans = pdb_a.copy()
+	path_a = pd.Ensemble('Path from transition to state A')
+	path_b = pd.Ensemble('Path from transition to state B')
+	path = pd.Ensemble('Transition Path')
+	path_a.setAtoms(pdb_a)
+	path_b.setAtoms(pdb_b)
+	path.setAtoms(pdb_trans)
+	# path_a.setCoords(pdb_a)
+	# path_b.setCoords(pdb_b)
+
+	ensemble_ref = pd.Ensemble()
+	ensemble_ref.setAtoms(pdb_a)
+	ensemble_ref.addCoordset(pdb_a)
+	ensemble_ref.addCoordset(pdb_b)
+
+	# Interpolate coordinates
+	print 'Searching for initial transition state.'
+	coords_trans_i, E_trans_i = findCuspStruct(pdb_container_a, pdb_container_b, ensemble_ref)
+
+	# Search for transition state
+	print 'Minimizing transition state.'
+	coords_trans_f = coords_trans_i
+	E_trans_f = E_trans_i
+	counter = np.zeros(1)
+	while((counter<max_iter)and(E_trans_f>tol)):
+		counter += 1
+		coords_trans_a = minimize(coords_trans_f, pdb_a.getCoords(), s=sa)
+		coords_trans_b = minimize(coords_trans_f, pdb_b.getCoords(), s=sb)
+		pdb_container_a.setCoords(coords_trans_a)
+		pdb_container_b.setCoords(coords_trans_b)
+		coords_trans_f, E_trans_f = findCuspStruct(pdb_container_a, pdb_container_b, ensemble_ref)
+		print '\tBeginning iteration %d, dE=%f'%(counter, E_trans_f)
+	pdb_trans.setCoords(coords_trans_f)
+
+	# Find path from transition state to reference state A, using steepest descent
+	print 'Finding paths of steepest descent from transition state.'
+	counter = np.zeros(1)
+	rmsd = pd.calcRMSD(pdb_a.getCoords(), pdb_trans.getCoords())
+	pdb_container_a.setCoords(pdb_trans)
+	while((counter<max_iter)and(rmsd>crit_rmsd)):
+		counter += 1
+		path_a.addCoordset(minimize(pdb_container_a.getCoords(), pdb_a.getCoords(), s=sa))
+		pdb_container_a.setCoords(path_a[-1])
+		rmsd = pd.calcRMSD(pdb_a.getCoords(), pdb_container_a.getCoords())
+		print 'RMSD (path A): %f'%(rmsd)
+
+	# Find path from transition state to reference state B, using steepest descent
+	counter = np.zeros(1)
+	rmsd = pd.calcRMSD(pdb_b.getCoords(), pdb_trans.getCoords())
+	pdb_container_b.setCoords(pdb_trans)
+	while((counter<max_iter)and(rmsd>crit_rmsd)):
+		counter += 1
+		path_b.addCoordset(minimize(pdb_container_b.getCoords(), pdb_b.getCoords(), s=sb))
+		pdb_container_b.setCoords(path_b[-1])
+		rmsd = pd.calcRMSD(pdb_b.getCoords(), pdb_container_b.getCoords())
+		print 'RMSD (path B): %f'%(rmsd)
+
+	# Stitch together frames of path in proper order
+	for i in reversed(xrange(0, len(path_a))):
+		path.addCoordset(path_a[i].getCoords())
+	path.addCoordset(pdb_trans.getCoords())
+	for i in xrange(0,len(path_b)):
+		path.addCoordset(path_b[i].getCoords())
+	print 'Transition path calculation complete!'
+	
+	return (path, pdb_trans)
+
+###################################################################################################################################
+# Function:		calcElasticPathway
+# Purpose:		Calculate ensemble of structures predicting conformational transition between pdb_a and pdb_b
+# Arguments:	
+###################################################################################################################################
+def calcElasticPathway(pdb_a, pdb_b, k=0.1, r_c=15, U0_a=0, U0_b=0, tol=10**(-4), crit_rmsd=1, max_iter=100):
+	import numpy as np
+	import prody as pd
+	import scipy as sci
+	import scipy.spatial as sp
+	import scipy.optimize as so
+
+
+
+	return 0

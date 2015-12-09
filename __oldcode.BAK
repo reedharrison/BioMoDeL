@@ -1,0 +1,372 @@
+###################################################################################################################################
+# Function:		calcTransitionPath
+# Purpose:		Calculate ensemble of structures predicting conformational transition between pdb_a and pdb_b
+# Arguments:	
+###################################################################################################################################
+def calcTransitionPath(pdb_a, pdb_b, k=0.1, r_c=15, U0_a=0, U0_b=0, sa=0.8, sb=0.4, t_rmsd=0.1, tol=10**(-4), crit_rmsd=1, m=100, max_iter=100):
+	import numpy as np
+	import prody as pd
+	import scipy as sci
+	import scipy.spatial as sp
+
+	# def U(coords, coords_ref, cutoff=r_c, k=k):
+	# 	gnm = pd.GNM()
+	# 	gnm.buildKirchhoff(coords_ref, cutoff, k)
+	# 	kirchhoff = gnm.getKirchhoff()
+	# 	np.fill_diagonal(kirchhoff, 0)
+	# 	kirchhoff = abs(kirchhoff)
+
+	# 	eq_dists = sp.distance.squareform(sp.distance.pdist(coords_ref, metric='euclidean'))
+	# 	dists = sp.distance.squareform(sp.distance.pdist(coords, metric='euclidean'))
+
+	# 	U = (k/2) * np.multiply(np.square(dists-eq_dists), kirchhoff)
+	# 	return U
+
+	def calc_dU(coords, coords_ref, cutoff=r_c, k=k):
+		gnm = pd.GNM()
+		gnm.buildKirchhoff(coords_ref, cutoff, k)
+		kirchhoff = gnm.getKirchhoff()
+		np.fill_diagonal(kirchhoff, 0)
+		kirchhoff = abs(kirchhoff)
+
+		n_atom = coords.shape[0]
+
+		xi = coords[:,0]
+		yi = coords[:,1]
+		zi = coords[:,2]
+		xj = coords_ref[:,0]
+		yj = coords_ref[:,1]
+		zj = coords_ref[:,2]
+
+		xi, xj = np.meshgrid(xi, xj)
+		yi, yj = np.meshgrid(yi, yj)
+		zi, zj = np.meshgrid(zi, zj)
+		mag = np.sqrt(np.square(xi-xj)+np.square(yi-yj)+np.square(zi-zj))
+		np.fill_diagonal(mag, 1)	
+
+		# Dx = abs(xi-xj)
+		# Dy = abs(yi-yj)
+		# Dz = abs(zi-zj)
+		# np.fill_diagonal(Dx, -1)
+		# np.fill_diagonal(Dy, -1)
+		# np.fill_diagonal(Dz, -1)
+
+		D = sp.distance.squareform(sp.distance.pdist(coords, metric='euclidean'))
+		D0 = sp.distance.squareform(sp.distance.pdist(coords_ref, metric='euclidean'))
+
+		dU = np.multiply(-kirchhoff, D-D0)
+		dUx = np.multiply(dU, np.divide(xi-xj, mag))
+		dUy = np.multiply(dU, np.divide(yi-yj, mag))
+		dUz = np.multiply(dU, np.divide(zi-zj, mag))
+
+		dUx = np.nansum(sci.triu(dUx))
+		dUy = np.nansum(sci.triu(dUy))
+		dUz = np.nansum(sci.triu(dUz))
+
+		# dUx = np.divide(np.multiply(Dx, (D-D0)), Dx)
+		# dUy = np.divide(np.multiply(Dy, (D-D0)), Dy)
+		# dUz = np.divide(np.multiply(Dz, (D-D0)), Dz)
+		# dUx = np.nan_to_num(np.divide(sci.triu(np.multiply(Dx, (D-D0))), sci.triu(Dx)))
+		# dUy = np.nan_to_num(np.divide(sci.triu(np.multiply(Dy, (D-D0))), sci.triu(Dy)))
+		# dUz = np.nan_to_num(np.divide(sci.triu(np.multiply(Dz, (D-D0))), sci.triu(Dz)))
+
+		# dUx = np.multiply(dUx, kirchhoff)
+		# dUy = np.multiply(dUy, kirchhoff)
+		# dUz = np.multiply(dUz, kirchhoff)
+
+		# dUx = (-1)*np.nansum(sci.triu(dUx))
+		# dUy = (-1)*np.nansum(sci.triu(dUy))
+		# dUz = (-1)*np.nansum(sci.triu(dUz))
+
+		return dUx, dUy, dUz
+	# def dU(coords, coords_ref, cutoff=r_c, k=k):
+	# 	gnm = pd.GNM()
+	# 	gnm.buildKirchhoff(coords_ref, cutoff, k)
+	# 	kirchhoff = gnm.getKirchhoff()
+	# 	np.fill_diagonal(kirchhoff, 0)
+	# 	kirchhoff = abs(kirchhoff)
+
+	# 	x_ref = np.vstack((coords_ref[:,0], np.zeros(coords_ref[:,0].size))).transpose()
+	# 	y_ref = np.vstack((coords_ref[:,1], np.zeros(coords_ref[:,1].size))).transpose()
+	# 	z_ref = np.vstack((coords_ref[:,2], np.zeros(coords_ref[:,2].size))).transpose()
+
+	# 	x = np.vstack((coords[:,0], np.zeros(coords[:,0].size))).transpose()
+	# 	y = np.vstack((coords[:,1], np.zeros(coords[:,1].size))).transpose()
+	# 	z = np.vstack((coords[:,2], np.zeros(coords[:,2].size))).transpose()
+
+	# 	eq_dists_x = sp.distance.squareform(sp.distance.pdist(x_ref, metric='euclidean'))
+	# 	eq_dists_y = sp.distance.squareform(sp.distance.pdist(y_ref, metric='euclidean'))
+	# 	eq_dists_z = sp.distance.squareform(sp.distance.pdist(z_ref, metric='euclidean'))
+
+	# 	dists_x = sp.distance.squareform(sp.distance.pdist(x, metric='euclidean'))
+	# 	dists_y = sp.distance.squareform(sp.distance.pdist(y, metric='euclidean'))
+	# 	dists_z = sp.distance.squareform(sp.distance.pdist(z, metric='euclidean'))
+
+	# 	springs_x = (-1) * k * np.multiply(abs(dists_x-eq_dists_x), kirchhoff)
+	# 	springs_y = (-1) * k * np.multiply(abs(dists_y-eq_dists_y), kirchhoff)
+	# 	springs_z = (-1) * k * np.multiply(abs(dists_z-eq_dists_z), kirchhoff)
+
+	# 	dUx = np.sum(springs_x, axis=0)
+	# 	dUy = np.sum(springs_y, axis=0)
+	# 	dUz = np.sum(springs_z, axis=0)
+	# 	return(dUx, dUy, dUz)
+
+	def findCuspStruct(pdb_a, pdb_b, ensemble_ref, m=m):
+		ensemble = pd.Ensemble()
+		ensemble.setAtoms(pdb_a)
+		ensemble.setCoords(pdb_a.getCoords())
+		conf_i = pdb_a.copy()
+		conf_f = pdb_b.copy()
+		# conf_f, T = pd.superpose(conf_f, conf_i)
+		v = conf_f.getCoords() - conf_i.getCoords()
+		for i in np.linspace(0, 1, m):
+			q = i
+			p = 1-q
+			coords = (p*v)+conf_i.getCoords()
+			ensemble.addCoordset(coords)
+		E_trans = calcMultiStateEnergy(ensemble, ensemble_ref, cutoff=r_c, k=k)
+		# E_trans = E_trans/np.max(E_trans)
+		diff_E = abs(E_trans[0,:]-E_trans[1,:])
+		ind_trans = np.argmin(diff_E)
+		coords = ensemble[ind_trans].getCoords()
+		return(coords, diff_E[ind_trans])
+		# ensemble = pd.Ensemble()
+		# ensemble.setAtoms(pdb_a)
+		# ensemble.setCoords(pdb_a.getCoords())
+		# conf_i = pdb_a.copy()
+		# conf_f = pdb_b.copy()
+		# conf_f, T = pd.superpose(conf_f, conf_i)
+		# for i in np.linspace(0, 1, m):
+		# 	q = i
+		# 	p = 1-q
+		# 	coords = (p*conf_i.getCoords())+(q*conf_f.getCoords())
+		# 	ensemble.addCoordset(coords)
+		# E_trans = calcMultiStateEnergy(ensemble, ensemble_ref, cutoff=r_c, k=k)
+		# E_trans = E_trans/np.max(E_trans)
+		# diff_E = abs(E_trans[0,:]-E_trans[1,:])
+		# ind_trans = np.argmin(diff_E)
+		# coords = ensemble[ind_trans].getCoords()
+		# return(coords, diff_E[ind_trans])
+
+	def minimize(coords, coords_ref, s, cutoff=r_c, k=k, U0=None):
+		dUx, dUy, dUz = calc_dU(coords, coords_ref, cutoff=cutoff, k=k)
+		x = coords[:,0] + np.multiply(s, dUx)
+		y = coords[:,1] + np.multiply(s, dUy)
+		z = coords[:,2] + np.multiply(s, dUz)
+		newcoords = np.zeros(coords.shape)
+		newcoords[:,0] = x
+		newcoords[:,1] = y
+		newcoords[:,2] = z
+		return newcoords
+
+	# Instantiate containers for data
+	pdb_b, junk = pd.superpose(pdb_b, pdb_a)
+	pdb_container_a = pdb_a.copy()
+	pdb_container_b = pdb_b.copy()
+	pdb_trans = pdb_a.copy()
+	path_a = pd.Ensemble('Path from transition to state A')
+	path_b = pd.Ensemble('Path from transition to state B')
+	path = pd.Ensemble('Transition Path')
+	path_a.setAtoms(pdb_a)
+	path_b.setAtoms(pdb_b)
+	path.setAtoms(pdb_trans)
+	# path_a.setCoords(pdb_a)
+	# path_b.setCoords(pdb_b)
+
+	ensemble_ref = pd.Ensemble()
+	ensemble_ref.setAtoms(pdb_a)
+	ensemble_ref.addCoordset(pdb_a)
+	ensemble_ref.addCoordset(pdb_b)
+
+	# Interpolate coordinates
+	print 'Searching for initial transition state.'
+	coords_trans_i, E_trans_i = findCuspStruct(pdb_container_a, pdb_container_b, ensemble_ref)
+
+	# Search for transition state
+	print 'Minimizing transition state.'
+	coords_trans_f = coords_trans_i
+	E_trans_f = E_trans_i
+	counter = np.zeros(1)
+	while((counter<max_iter)and(E_trans_f>tol)):
+		counter += 1
+		coords_trans_a = minimize(coords_trans_f, pdb_a.getCoords(), s=sa)
+		coords_trans_b = minimize(coords_trans_f, pdb_b.getCoords(), s=sb)
+		pdb_container_a.setCoords(coords_trans_a)
+		pdb_container_b.setCoords(coords_trans_b)
+		coords_trans_f, E_trans_f = findCuspStruct(pdb_container_a, pdb_container_b, ensemble_ref)
+		print '\tBeginning iteration %d, dE=%f'%(counter, E_trans_f)
+	pdb_trans.setCoords(coords_trans_f)
+
+	# Find path from transition state to reference state A, using steepest descent
+	print 'Finding paths of steepest descent from transition state.'
+	counter = np.zeros(1)
+	rmsd = pd.calcRMSD(pdb_a.getCoords(), pdb_trans.getCoords())
+	pdb_container_a.setCoords(pdb_trans)
+	while((counter<max_iter)and(rmsd>crit_rmsd)):
+		counter += 1
+		path_a.addCoordset(minimize(pdb_container_a.getCoords(), pdb_a.getCoords(), s=sa))
+		pdb_container_a.setCoords(path_a[-1])
+		rmsd = pd.calcRMSD(pdb_a.getCoords(), pdb_container_a.getCoords())
+		print 'RMSD (path A): %f'%(rmsd)
+
+	# Find path from transition state to reference state B, using steepest descent
+	counter = np.zeros(1)
+	rmsd = pd.calcRMSD(pdb_b.getCoords(), pdb_trans.getCoords())
+	pdb_container_b.setCoords(pdb_trans)
+	while((counter<max_iter)and(rmsd>crit_rmsd)):
+		counter += 1
+		path_b.addCoordset(minimize(pdb_container_b.getCoords(), pdb_b.getCoords(), s=sb))
+		pdb_container_b.setCoords(path_b[-1])
+		rmsd = pd.calcRMSD(pdb_b.getCoords(), pdb_container_b.getCoords())
+		print 'RMSD (path B): %f'%(rmsd)
+
+	# Stitch together frames of path in proper order
+	for i in reversed(xrange(0, len(path_a))):
+		path.addCoordset(path_a[i].getCoords())
+	path.addCoordset(pdb_trans.getCoords())
+	for i in xrange(0,len(path_b)):
+		path.addCoordset(path_b[i].getCoords())
+	print 'Transition path calculation complete!'
+
+	return (path, pdb_trans)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	# def dU(conf, conf_ref, cutoff=r_c, k=k, U0=None):
+	# 	gnm = pd.GNM()
+	# 	gnm.buildKirchhoff(conf_ref, cutoff, k)
+	# 	kirchhoff = gnm.getKirchhoff()
+	# 	np.fill_diagonal(kirchhoff, 0)
+	# 	kirchhoff = abs(kirchhoff)
+
+	# 	x_ref = np.vstack((conf_ref.getCoords()[:,0], np.zeros(conf_ref.getCoords()[:,0].shape))).transpose()
+	# 	y_ref = np.vstack((conf_ref.getCoords()[:,1], np.zeros(conf_ref.getCoords()[:,1].shape))).transpose()
+	# 	z_ref = np.vstack((conf_ref.getCoords()[:,2], np.zeros(conf_ref.getCoords()[:,2].shape))).transpose()
+
+	# 	x = np.vstack((conf.getCoords()[:,0], np.zeros(conf.getCoords()[:,0].shape))).transpose()
+	# 	y = np.vstack((conf.getCoords()[:,1], np.zeros(conf.getCoords()[:,1].shape))).transpose()
+	# 	z = np.vstack((conf.getCoords()[:,2], np.zeros(conf.getCoords()[:,2].shape))).transpose()
+
+	# 	eq_dists_x = sp.distance.squareform(sp.distance.pdist(x_ref, metric='euclidean'))
+	# 	eq_dists_y = sp.distance.squareform(sp.distance.pdist(y_ref, metric='euclidean'))
+	# 	eq_dists_z = sp.distance.squareform(sp.distance.pdist(z_ref, metric='euclidean'))
+
+	# 	dists_x = sp.distance.squareform(sp.distance.pdist(x, metric='euclidean'))
+	# 	dists_y = sp.distance.squareform(sp.distance.pdist(y, metric='euclidean'))
+	# 	dists_z = sp.distance.squareform(sp.distance.pdist(z, metric='euclidean'))
+
+	# 	springs_x = k * np.multiply(abs(dists_x-eq_dists_x), kirchhoff)
+	# 	springs_y = k * np.multiply(abs(dists_y-eq_dists_y), kirchhoff)
+	# 	springs_z = k * np.multiply(abs(dists_z-eq_dists_z), kirchhoff)
+
+	# 	dUx = np.sum(springs_x, axis=0)
+	# 	dUy = np.sum(springs_y, axis=0)
+	# 	dUz = np.sum(springs_z, axis=0)
+	# 	return(dUx, dUy, dUz)
+
+	# def findCuspStruct(pdb_a, pdb_b, ensemble_ref, m=m):
+	# 	ensemble = pd.Ensemble()
+	# 	ensemble.setAtoms(pdb_a)
+	# 	ensemble.setCoords(pdb_a)
+	# 	conf_i = pdb_a.select(sel).calpha
+	# 	conf_f = pdb_b.select(sel).calpha
+	# 	conf_f, T = pd.superpose(conf_f, conf_i)
+	# 	for i in np.linspace(0, 1, m):
+	# 		q = i
+	# 		p = 1-q
+	# 		coords = (p*conf_i.getCoords())+(q*conf_f.getCoords())
+	# 		ensemble.addCoordset(coords)
+	# 	E_trans = calcMultiStateEnergy(ensemble, ensemble_ref, cutoff=r_c, k=k)
+	# 	E_trans = E_trans/np.max(E_trans)
+	# 	diff_E = abs(E_trans[0,:]-E_trans[1,:])
+	# 	ind_trans = np.argmin(diff_E)
+	# 	conf_trans = ensemble[ind_trans:ind_trans+1]
+	# 	return(conf_trans, diff_E[ind_trans])
+
+	# def minimize(conf, conf_ref, s, cutoff=r_c, k=k, U0=None):
+	# 	dUx, dUy, dUz = dU(conf, conf_ref, cutoff=cutoff, k=k)
+	# 	x = conf.getCoords()[:,0] + np.multiply(s, dUx)
+	# 	y = conf.getCoords()[:,1] + np.multiply(s, dUy)
+	# 	z = conf.getCoords()[:,2] + np.multiply(s, dUz)
+	# 	newcoords = np.zeros(conf.getCoords().shape)
+	# 	newcoords[:,0] = x
+	# 	newcoords[:,1] = y
+	# 	newcoords[:,2] = z
+	# 	newensemble = conf[0:1]
+	# 	#newensemble.setCoords(newcoords)
+	# 	newensemble.addCoordset(newcoords)
+	# 	return newcoords, dUx, dUy, dUz
+
+	# ensemble_ref = pd.Ensemble()
+	# ensemble_ref.setAtoms(pdb_a.select(sel))
+	# ensemble_ref.setCoords(pdb_a.select(sel))
+	# ensemble_ref.addCoordset(pdb_a.select(sel))
+	# ensemble_ref.addCoordset(pdb_b.select(sel))
+
+	# # Interpolate coordinates
+	# print 'Searching for initial transition state.'
+	# conf_trans_i, E_trans_i = findCuspStruct(pdb_a.select(sel), pdb_b.select(sel), ensemble_ref)
+	# # conf_i = pdb_a.select(sel).calpha
+	# # conf_f = pdb_b.select(sel).calpha
+	# # conf_f, T = pd.superpose(conf_f, conf_i)
+
+	# # ensemble = pd.Ensemble()
+	# # ensemble.setAtoms(pdb_a)
+	# # ensemble.setCoords(pdb_a)
+	# # for i in np.linspace(0, 1, m):
+	# # 	q = i
+	# # 	p = 1-q
+	# # 	coords = (p*conf_i.getCoords())+(q*conf_f.getCoords())
+	# # 	ensemble.addCoordset(coords)
+	# # E_trans = calcMultiStateEnergy(ensemble, ensemble_ref, cutoff=r_c, k=k)
+	# # E_trans = E_trans/np.max(E_trans)
+
+	# # Search for transition state
+	# print 'Minimizing transition state.'
+	# conf_trans_f = conf_trans_i[0:1]
+	# E_trans_f = E_trans_i
+	# counter = np.zeros(1)
+	# while((counter<max_iter)and(E_trans_f>tol)):
+	# 	counter += 1
+	# 	print '\tBeginning iteration %d, dE=%f'%(counter, E_trans_f)
+	# 	conf_trans_a = minimize(conf_trans_f, ensemble_ref[0:1], s=sa)
+	# 	conf_trans_b = minimize(conf_trans_f, ensemble_ref[1:2], s=sb)
+	# 	pdb_container_a.setCoords(conf_trans_a.getCoords())
+	# 	pdb_container_b.setCoords(conf_trans_b.getCoords())
+	# 	conf_trans_f, E_trans_f = findCuspStruct(pdb_container_a, pdb_container_b, ensemble_ref)
+	# # diff_E = abs(E_trans[0,:]-E_trans[1,:])
+	# # ind_trans = np.argmin(diff_E)
+	# # conf_trans_i = ensemble[ind_trans]
+	# # if diff_E[ind_trans] > tol:
+	# # 	print 'Warning, energy difference is greater than tolerance (%f). Increase M in searching for transition state.'%(diff_E[ind_trans])
+
+	# # Find path from reference structures to transition state
+	# print 'Finding paths of steepest descent from transition state.'
+	# # path_trans_a = Ensemble()
+	# # path_trans_b = Ensemble()
+	# # path_trans_a.setAtoms(pdb_a)
+	# # path_trans_b.setAtoms(pdb_b)
+	# # path_trans_a.setCoords(pdb_a)
+	# # path_trans_b.setCoords(pdb_b)
+	# # rmsd_a =
+	# # rmsd_b = 
+
+	# # return pd.calcRMSD(conf_i, conf_f)
+	# print 'Transition path calculation complete!'
+	# return (conf_trans_f)
